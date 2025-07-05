@@ -7,3 +7,4 @@ google-genai
 pydantic
 python-dotenv
 rich
+python-multipart

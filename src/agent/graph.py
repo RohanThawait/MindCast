@@ -3,6 +3,7 @@
 from langgraph.graph import StateGraph, START, END
 from langchain_core.runnables import RunnableConfig
 from google.genai import types
+from langsmith import traceable
 
 from src.agent.state import ResearchState, ResearchStateInput, ResearchStateOutput
 from src.agent.utils import (
@@ -12,13 +13,12 @@ from src.agent.utils import (
     genai_client
 )
 from src.agent.configuration import Configuration
-from langsmith import traceable
 
 
 @traceable(run_type="llm", name="Web Research", project_name="MindCast")
 def search_research_node(state: ResearchState, config: RunnableConfig) -> dict:
-    configuration = Configuration.from_runnable_config(config)
     topic = state["topic"]
+    configuration = Configuration.from_runnable_config(config)
 
     search_response = genai_client.models.generate_content(
         model=configuration.search_model,
@@ -33,15 +33,15 @@ def search_research_node(state: ResearchState, config: RunnableConfig) -> dict:
 
     return {
         "search_text": search_text,
-        "search_sources_text": search_sources_text
+        "search_sources_text": search_sources_text,
     }
 
 
 @traceable(run_type="llm", name="YouTube Video Analysis", project_name="MindCast")
 def analyze_video_node(state: ResearchState, config: RunnableConfig) -> dict:
-    configuration = Configuration.from_runnable_config(config)
     topic = state["topic"]
     video_url = state.get("video_url")
+    configuration = Configuration.from_runnable_config(config)
 
     if not video_url:
         return {"video_text": "No video provided for analysis."}
@@ -57,17 +57,15 @@ def analyze_video_node(state: ResearchState, config: RunnableConfig) -> dict:
     )
 
     video_text, _ = display_gemini_response(video_response)
-
     return {"video_text": video_text}
 
 
 @traceable(run_type="llm", name="Create Report", project_name="MindCast")
 def create_report_node(state: ResearchState, config: RunnableConfig) -> dict:
     configuration = Configuration.from_runnable_config(config)
-    topic = state["topic"]
 
-    report, synthesis_text = create_research_report(
-        topic=topic,
+    report, synthesis_text, report_filename, pdf_filename = create_research_report(
+        topic=state["topic"],
         search_text=state.get("search_text", ""),
         video_text=state.get("video_text", ""),
         search_sources_text=state.get("search_sources_text", ""),
@@ -77,46 +75,47 @@ def create_report_node(state: ResearchState, config: RunnableConfig) -> dict:
 
     return {
         "report": report,
-        "synthesis_text": synthesis_text
+        "synthesis_text": synthesis_text,
+        "report_filename": report_filename,
+        "pdf_filename": pdf_filename,
     }
+
 
 
 @traceable(run_type="llm", name="Create Podcast", project_name="MindCast")
 def create_podcast_node(state: ResearchState, config: RunnableConfig) -> dict:
     configuration = Configuration.from_runnable_config(config)
-    topic = state["topic"]
 
-    # Create clean filename
-    safe_topic = "".join(c for c in topic if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    safe_topic = "".join(c for c in state["topic"] if c.isalnum() or c in (' ', '-', '_')).rstrip()
     filename = f"research_podcast_{safe_topic.replace(' ', '_')}.wav"
 
     podcast_script, podcast_filename = create_podcast_discussion(
-        topic=topic,
+        topic=state["topic"],
         search_text=state.get("search_text", ""),
         video_text=state.get("video_text", ""),
         search_sources_text=state.get("search_sources_text", ""),
         video_url=state.get("video_url", ""),
         filename=filename,
-        configuration=configuration
+        configuration=configuration,
     )
 
     return {
         "podcast_script": podcast_script,
-        "podcast_filename": podcast_filename
+        "podcast_filename": podcast_filename,
     }
 
 
 def should_analyze_video(state: ResearchState) -> str:
-    """If a video URL exists, branch to video node; else go to report node"""
+    """Decide whether to analyze video or go directly to report"""
     return "analyze_video" if state.get("video_url") else "create_report"
 
 
 def create_research_graph() -> StateGraph:
     graph = StateGraph(
-        ResearchState,
-        input=ResearchStateInput,
-        output=ResearchStateOutput,
-        config_schema=Configuration
+        state_schema=ResearchState,
+        input_schema=ResearchStateInput,
+        output_schema=ResearchStateOutput,
+        config_schema=Configuration,
     )
 
     graph.add_node("search_research", search_research_node)

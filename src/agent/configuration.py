@@ -5,7 +5,6 @@ from dataclasses import dataclass, fields
 from typing import Optional, Any
 from langchain_core.runnables import RunnableConfig
 
-
 @dataclass(kw_only=True)
 class Configuration:
     """Config schema used by LangGraph and FastAPI."""
@@ -17,13 +16,13 @@ class Configuration:
     tts_model: str = "gemini-2.5-flash-preview-tts"
 
     # 🔥 Temperature controls
-    search_temperature: float = 0.0          # factual, no hallucination
-    synthesis_temperature: float = 0.3       # analytical report
-    podcast_script_temperature: float = 0.4  # more creative
+    search_temperature: float = 0.0
+    synthesis_temperature: float = 0.3
+    podcast_script_temperature: float = 0.4
 
     # 🎙️ TTS voice settings
-    mike_voice: str = "Kore"   # Male
-    sarah_voice: str = "Puck"  # Female
+    mike_voice: str = "Kore"
+    sarah_voice: str = "Puck"
     tts_channels: int = 1
     tts_rate: int = 24000
     tts_sample_width: int = 2

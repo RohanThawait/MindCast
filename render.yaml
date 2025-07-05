@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: mindcast-app
+    env: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: GEMINI_API_KEY
+        value: your_actual_gemini_api_key

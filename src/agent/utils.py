@@ -1,107 +1,135 @@
 import os
 import wave
-from google.genai import Client, types
+import logging
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.markdown import Markdown
-from dotenv import load_dotenv
-import logging
+from google.genai import Client, types
+from typing import Optional, Tuple
+from src.agent.configuration import Configuration
+
 load_dotenv()
 
-
-# Initialize client
+# Initialize Gemini client
 genai_client = Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+def display_gemini_response(response) -> tuple[str, str]:
+    """
+    Extracts and displays Gemini response content and grounding sources in console.
 
-def display_gemini_response(response):
-    """Extract text from Gemini response and display as markdown with references"""
+    Returns:
+        Tuple containing (main_response_text, formatted_sources_text)
+    """
     console = Console()
-    
-    # Extract main content
-    text = response.candidates[0].content.parts[0].text
-    md = Markdown(text)
-    console.print(md)
-    
-    # Get candidate for grounding metadata
     candidate = response.candidates[0]
+    content_parts = candidate.content.parts
+    text = content_parts[0].text if content_parts else "[No content found]"
     
-    # Build sources text block
+    console.print(Markdown(text))
+    
     sources_text = ""
-    
-    # Display grounding metadata if available
-    if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
-        console.print("\n" + "="*50)
-        console.print("[bold blue]References & Sources[/bold blue]")
-        console.print("="*50)
-        
-        # Display and collect source URLs
-        if candidate.grounding_metadata.grounding_chunks:
-            console.print(f"\n[bold]Sources ({len(candidate.grounding_metadata.grounding_chunks)}):[/bold]")
-            sources_list = []
-            for i, chunk in enumerate(candidate.grounding_metadata.grounding_chunks, 1):
-                if hasattr(chunk, 'web') and chunk.web:
-                    title = getattr(chunk.web, 'title', 'No title') or "No title"
-                    uri = getattr(chunk.web, 'uri', 'No URI') or "No URI"
+
+    if hasattr(candidate, "grounding_metadata") and candidate.grounding_metadata:
+        grounding = candidate.grounding_metadata
+        sources_list = []
+
+        if grounding.grounding_chunks:
+            console.print("\n" + "=" * 50)
+            console.print("[bold blue]References & Sources[/bold blue]")
+            console.print("=" * 50)
+            console.print(f"\n[bold]Sources ({len(grounding.grounding_chunks)}):[/bold]")
+
+            for i, chunk in enumerate(grounding.grounding_chunks, 1):
+                if hasattr(chunk, "web") and chunk.web:
+                    title = getattr(chunk.web, "title", "No title")
+                    uri = getattr(chunk.web, "uri", "No URI")
                     console.print(f"{i}. {title}")
                     console.print(f"   [dim]{uri}[/dim]")
                     sources_list.append(f"{i}. {title}\n   {uri}")
             
             sources_text = "\n".join(sources_list)
-        
-        # Display grounding supports (which text is backed by which sources)
-        if candidate.grounding_metadata.grounding_supports:
+
+        if grounding.grounding_supports:
             console.print(f"\n[bold]Text segments with source backing:[/bold]")
-            for support in candidate.grounding_metadata.grounding_supports[:5]:  # Show first 5
-                if hasattr(support, 'segment') and support.segment:
-                    snippet = support.segment.text[:100] + "..." if len(support.segment.text) > 100 else support.segment.text
-                    source_nums = [str(i+1) for i in support.grounding_chunk_indices]
-                    console.print(f"• \"{snippet}\" [dim](sources: {', '.join(source_nums)})[/dim]")
-    
+            for support in grounding.grounding_supports[:5]:
+                if support.segment:
+                    snippet = support.segment.text
+                    short_snippet = snippet[:100] + "..." if len(snippet) > 100 else snippet
+                    indices = ", ".join(str(i+1) for i in support.grounding_chunk_indices)
+                    console.print(f"• \"{short_snippet}\" [dim](sources: {indices})[/dim]")
+
     return text, sources_text
 
 
-def wave_file(filename, pcm, channels=1, rate=24000, sample_width=2):
-    """Save PCM data to a wave file"""
+def wave_file(filename: str, pcm: bytes, channels: int = 1, rate: int = 24000, sample_width: int = 2) -> None:
+    """
+    Saves raw PCM audio data to a WAV file.
+
+    Args:
+        filename: Output .wav file path
+        pcm: Raw PCM audio data
+        channels: Number of audio channels (default 1 = mono)
+        rate: Sample rate in Hz (default 24000)
+        sample_width: Sample width in bytes (default 2 for 16-bit)
+    """
     with wave.open(filename, "wb") as wf:
         wf.setnchannels(channels)
         wf.setsampwidth(sample_width)
         wf.setframerate(rate)
         wf.writeframes(pcm)
 
+def create_podcast_discussion(
+    topic: str,
+    search_text: str,
+    video_text: str,
+    search_sources_text: str,
+    video_url: Optional[str],
+    filename: Optional[str] = None,
+    configuration: Optional[Configuration] = None
+) -> Tuple[str, str]:
+    """
+    Creates a podcast conversation and generates audio using Gemini TTS.
 
-def create_podcast_discussion(topic, search_text, video_text, search_sources_text, video_url, filename="mindcast_episode.wav", configuration=None):
-    """Create a 2-speaker podcast discussion explaining the research topic"""
-    
-    # Use default values if no configuration provided
+    Args:
+        topic: The topic for the podcast.
+        search_text: Insights from web search.
+        video_text: Insights from video analysis.
+        search_sources_text: Citation text block from search.
+        video_url: Optional URL to the analyzed video.
+        filename: Custom output filename. If not provided, one is generated.
+        configuration: Optional Configuration instance.
+
+    Returns:
+        Tuple containing:
+            - podcast_script: The generated dialogue
+            - podcast_filename: Name of the saved .wav file
+    """
     if configuration is None:
-        from agent.configuration import Configuration
         configuration = Configuration()
-    
-    # Step 1: Generate podcast script
+
+    # 1. Generate podcast script
     script_prompt = f"""
     Create a natural, engaging podcast conversation between Dr. Sarah (research expert) and Mike (curious interviewer) about "{topic}".
-    
+
     Use this research content:
-    
+
     SEARCH FINDINGS:
     {search_text}
-    
+
     VIDEO INSIGHTS:
     {video_text}
-    
+
     Format as a dialogue with:
     - Mike introducing the topic and asking questions
     - Dr. Sarah explaining key concepts and insights
-    - Natural back-and-forth discussion (5-7 exchanges)
+    - Natural back-and-forth discussion (5–7 exchanges)
     - Mike asking follow-up questions
-    - Dr. Sarah synthesizing the main takeaways
-    - Keep it conversational and accessible (3-4 minutes when spoken)
-    
-    Format exactly like this:
-    Mike: [opening question]
-    Dr. Sarah: [expert response]
-    Mike: [follow-up]
-    Dr. Sarah: [explanation]
-    [continue...]
+    - Dr. Sarah summarizing key takeaways
+    - Keep it conversational and accessible (~3–4 mins)
+
+    Format like:
+    Mike: ...
+    Dr. Sarah: ...
     """
     
     script_response = genai_client.models.generate_content(
@@ -109,13 +137,13 @@ def create_podcast_discussion(topic, search_text, video_text, search_sources_tex
         contents=script_prompt,
         config={"temperature": configuration.podcast_script_temperature}
     )
-    
-    podcast_script = script_response.candidates[0].content.parts[0].text
-    
-    # Step 2: Generate TTS audio
+
+    podcast_script = script_response.candidates[0].content.parts[0].text.strip()
+
+    # 2. Generate multi-speaker TTS
     tts_prompt = f"TTS the following conversation between Mike and Dr. Sarah:\n{podcast_script}"
-    
-    response = genai_client.models.generate_content(
+
+    audio_response = genai_client.models.generate_content(
         model=configuration.tts_model,
         contents=tts_prompt,
         config=types.GenerateContentConfig(
@@ -124,82 +152,82 @@ def create_podcast_discussion(topic, search_text, video_text, search_sources_tex
                 multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
                     speaker_voice_configs=[
                         types.SpeakerVoiceConfig(
-                            speaker='Mike',
+                            speaker="Mike",
                             voice_config=types.VoiceConfig(
                                 prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                    voice_name=configuration.mike_voice,
+                                    voice_name=configuration.mike_voice
                                 )
-                            )
+                            ),
                         ),
                         types.SpeakerVoiceConfig(
-                            speaker='Dr. Sarah',
+                            speaker="Dr. Sarah",
                             voice_config=types.VoiceConfig(
                                 prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                    voice_name=configuration.sarah_voice,
+                                    voice_name=configuration.sarah_voice
                                 )
-                            )
+                            ),
                         ),
                     ]
                 )
             )
         )
     )
-    
-    # Step 3: Save audio file
-    # Generate safe filename
-    safe_topic = "".join(c for c in topic if c.isalnum() or c in (' ', '-', '_')).rstrip()
 
-    # Ensure the 'podcasts' folder exists
+    audio_data = audio_response.candidates[0].content.parts[0].inline_data.data
+
+    # 3. Save the audio to 'podcasts' folder
+    safe_topic = "".join(c for c in topic if c.isalnum() or c in (" ", "-", "_")).rstrip().replace(" ", "_")
     os.makedirs("podcasts", exist_ok=True)
 
-    # Save the podcast in the 'podcasts' folder
-    filename = os.path.join("podcasts", f"mindcast_episode_{safe_topic.replace(' ', '_')}.wav")
+    podcast_filename = filename or f"mindcast_episode_{safe_topic}.wav"
+    filepath = os.path.join("podcasts", podcast_filename)
 
-    audio_data = response.candidates[0].content.parts[0].inline_data.data
-    wave_file(filename, audio_data, configuration.tts_channels, configuration.tts_rate, configuration.tts_sample_width)
-    
-    logger = logging.getLogger(__name__)
-    logger.info(f"Podcast saved as: {filename}")
-    return podcast_script, os.path.basename(filename)
+    wave_file(filepath, audio_data, configuration.tts_channels, configuration.tts_rate, configuration.tts_sample_width)
 
+    logging.getLogger(__name__).info(f"Podcast saved at: {filepath}")
+
+    return podcast_script, podcast_filename
+
+import os
+import logging
+from textwrap import wrap
+from reportlab.lib.pagesizes import LETTER
+from reportlab.pdfgen import canvas
 
 def create_research_report(topic, search_text, video_text, search_sources_text, video_url, configuration=None):
     """Create a comprehensive research report by synthesizing search and video content"""
-    
-    # Use default values if no configuration provided
+
     if configuration is None:
         from agent.configuration import Configuration
         configuration = Configuration()
-    
+
     # Step 1: Create synthesis using Gemini
     synthesis_prompt = f"""
     You are a research analyst. I have gathered information about "{topic}" from two sources:
-    
+
     SEARCH RESULTS:
     {search_text}
-    
+
     VIDEO CONTENT:
     {video_text}
-    
+
     Please create a comprehensive synthesis that:
     1. Identifies key themes and insights from both sources
     2. Highlights any complementary or contrasting perspectives
     3. Provides an overall analysis of the topic based on this multi-modal research
     4. Keep it concise but thorough (3-4 paragraphs)
-    
+
     Focus on creating a coherent narrative that brings together the best insights from both sources.
     """
-    
+
     synthesis_response = genai_client.models.generate_content(
         model=configuration.synthesis_model,
         contents=synthesis_prompt,
-        config={
-            "temperature": configuration.synthesis_temperature,
-        }
+        config={"temperature": configuration.synthesis_temperature}
     )
-    
+
     synthesis_text = synthesis_response.candidates[0].content.parts[0].text
-    
+
     # Step 2: Create markdown report
     report = f"""# Research Report: {topic}
 
@@ -216,13 +244,41 @@ def create_research_report(topic, search_text, video_text, search_sources_text, 
 ---
 *Report generated using multi-modal AI research combining web search and video analysis*
 """
-    # Generate safe filename
-    safe_topic = "".join(c for c in topic if c.isalnum() or c in (' ', '-', '_')).rstrip()
+
+    # Safe file name
+    safe_topic = "".join(c for c in topic if c.isalnum() or c in (' ', '-', '_')).rstrip().replace(' ', '_')
+
+    # Create directory
     os.makedirs("reports", exist_ok=True)
-    report_filename = os.path.join("reports", f"mindcast_report_{safe_topic.replace(' ', '_')}.md")
+
+    # Save Markdown
+    report_filename = os.path.join("reports", f"mindcast_report_{safe_topic}.md")
     with open(report_filename, "w", encoding="utf-8") as f:
         f.write(report)
 
+    # Save PDF
+    pdf_filename = os.path.join("reports", f"mindcast_report_{safe_topic}.pdf")
+    c = canvas.Canvas(pdf_filename, pagesize=LETTER)
+    width, height = LETTER
+    c.setFont("Helvetica", 12)
+
+    lines = report.split("\n")
+    y = height - 50
+
+    for line in lines:
+        wrapped_lines = wrap(line, width=90)
+        for wrapped_line in wrapped_lines:
+            c.drawString(40, y, wrapped_line)
+            y -= 18
+            if y < 50:
+                c.showPage()
+                c.setFont("Helvetica", 12)
+                y = height - 50
+
+    c.save()
+
     logger = logging.getLogger(__name__)
     logger.info(f"Report saved as: {report_filename}")
-    return report, synthesis_text, os.path.basename(report_filename)
+    logger.info(f"PDF saved as: {pdf_filename}")
+
+    return report, synthesis_text, os.path.basename(report_filename), os.path.basename(pdf_filename)
