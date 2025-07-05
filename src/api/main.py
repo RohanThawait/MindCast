@@ -4,7 +4,7 @@ from fastapi.responses import FileResponse
 from typing import Optional
 import os
 import logging
-
+from fastapi.middleware.cors import CORSMiddleware
 from src.agent.graph import create_compiled_graph
 from src.agent.configuration import Configuration
 from src.agent.state import ResearchStateInput, ResearchStateOutput
@@ -16,8 +16,23 @@ app = FastAPI(
     description="Generate podcast + research reports from a topic and optional video",
     version="1.0.0"
 )
+
+os.makedirs("podcasts", exist_ok=True)
+os.makedirs("reports", exist_ok=True)
+
+# CORS (optional for frontend)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For dev — change in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory=os.path.join(os.getcwd(), "podcasts")), name="static")
 app.mount("/reports", StaticFiles(directory=os.path.join(os.getcwd(), "reports")), name="reports")
+
+
 
 graph = create_compiled_graph()
 logger = logging.getLogger(__name__)

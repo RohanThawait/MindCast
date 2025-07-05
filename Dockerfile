@@ -16,11 +16,15 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+
+RUN mkdir -p /app/podcasts /app/reports
+
 # Copy app code
 COPY . .
 
 # Expose ports
 EXPOSE 8000
+
 
 # Run both FastAPI and Streamlit using subprocess
 CMD ["sh", "-c", "uvicorn src.agent.main:app --host 0.0.0.0 --port 8000 & streamlit run src/frontend/app.py --server.port 8501 --server.address 0.0.0.0"]
