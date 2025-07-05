@@ -3,7 +3,7 @@ import streamlit as st
 import requests
 
 # Backend endpoint
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "https://mindcast-gyl6.onrender.com"
 
 # Page setup
 st.set_page_config(page_title="🎙️ MindCast AI", layout="centered")
