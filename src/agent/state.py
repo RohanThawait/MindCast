@@ -1,13 +1,13 @@
-from typing_extensions import TypedDict
+from pydantic import BaseModel
 from typing import Optional
 
-class ResearchStateInput(TypedDict):
+class ResearchStateInput(BaseModel):
     """User-provided input for MindCast research + podcast workflow"""
     topic: str
     video_url: Optional[str]  # Optional video or YouTube link
 
 
-class ResearchStateOutput(TypedDict):
+class ResearchStateOutput(BaseModel):
     """Final output from the workflow"""
     report: Optional[str]
     podcast_script: Optional[str]
@@ -16,7 +16,7 @@ class ResearchStateOutput(TypedDict):
     pdf_filename: Optional[str]
 
 
-class ResearchState(TypedDict):
+class ResearchState(BaseModel):
     """Complete state used in the LangGraph workflow"""
     # Input
     topic: str

@@ -6,8 +6,7 @@ import os
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 from src.agent.graph import create_compiled_graph
-from src.agent.configuration import Configuration
-from src.agent.state import ResearchStateInput, ResearchStateOutput
+from src.agent.state import ResearchStateInput
 from fastapi.staticfiles import StaticFiles
 import traceback
 

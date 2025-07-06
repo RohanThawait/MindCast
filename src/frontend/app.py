@@ -18,21 +18,8 @@ video_url = None
 if video_method == "Paste URL":
     video_url = st.text_input("🔗 Direct Video URL (.mp4, .webm, or YouTube)")
 
-# --- Persistent state ---
-if "disable_run" not in st.session_state:
-    st.session_state.disable_run = False
-if "retry_in" not in st.session_state:
-    st.session_state.retry_in = 0
-
-# --- Countdown helper ---
-def countdown(seconds: int):
-    for i in range(seconds, 0, -1):
-        st.warning(f"⚠️ Gemini quota exceeded. Please wait {i} seconds before retrying...")
-        time.sleep(1)
-        st.experimental_rerun()
-
 # --- Trigger Button ---
-run_clicked = st.button("🚀 Generate Research & Podcast", disabled=st.session_state.disable_run)
+run_clicked = st.button("🚀 Generate Research & Podcast")
 
 if run_clicked:
     if not topic:
@@ -51,9 +38,7 @@ if run_clicked:
                 # ✅ Backend returned an error (like Gemini quota exceeded)
                 if "error" in result:
                     if "quota" in result["error"].lower():
-                        st.session_state.disable_run = True
-                        st.session_state.retry_in = 60
-                        countdown(st.session_state.retry_in)
+                        st.warning(f"⚠️ Processing video input quota exceeded. Please try later or only pass the topic.")
                     else:
                         st.error(f"⚠️ {result['error']}")
                 else:
