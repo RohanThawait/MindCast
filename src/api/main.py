@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query,Request
 from pydantic import BaseModel
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse,JSONResponse
 from typing import Optional
 import os
 import logging
@@ -9,6 +9,7 @@ from src.agent.graph import create_compiled_graph
 from src.agent.configuration import Configuration
 from src.agent.state import ResearchStateInput, ResearchStateOutput
 from fastapi.staticfiles import StaticFiles
+import traceback
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -57,22 +58,36 @@ def health_check():
 # --------------------------
 # ✅ Main Inference Endpoint
 # --------------------------
-@app.post("/run", response_model=ResearchStateOutput)
-def generate_content(payload: InputPayload):
+# src/agent/main.py
+
+@app.post("/run")
+async def run_mindcast(payload: ResearchStateInput, request: Request):
     try:
-        # Run the LangGraph workflow
-        result = graph.invoke(
-            input=ResearchStateInput(
-                topic=payload.topic,
-                video_url=payload.video_url
-            ),
-            config={"configurable": Configuration().to_dict()}
+        graph = create_compiled_graph()
+        result = graph.invoke(payload)
+        
+        return {
+            "report": result.get("report"),
+            "podcast_script": result.get("podcast_script"),
+            "podcast_filename": result.get("podcast_filename"),
+        }
+
+    except Exception as e:
+        error_str = str(e)
+
+        # Gemini quota-specific check
+        if "RESOURCE_EXHAUSTED" in error_str or "429" in error_str:
+            return JSONResponse(
+                status_code=200,  # Keep 200 to avoid Streamlit exception
+                content={"error": "Gemini API quota exceeded. Please wait 1 minute and try again."}
+            )
+        # Generic error
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=200,
+            content={"error": f"Internal error: {error_str}"}
         )
 
-        return result
-    except Exception as e:
-        logger.exception("Failed to run MindCast pipeline.")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --------------------------
