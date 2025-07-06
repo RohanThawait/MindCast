@@ -63,7 +63,6 @@ def health_check():
 @app.post("/run")
 async def run_mindcast(payload: ResearchStateInput, request: Request):
     try:
-        graph = create_compiled_graph()
         result = graph.invoke(payload)
         
         return {
